@@ -1,0 +1,9 @@
+# fetch SPP data every few minutes all the time, until I can get a working backfill routine
+3,7,13,17,23,27,33,37,43,47,53,57 * * * * \
+    bash -ls -c 'cd ~/rto-data-project && sleep 17 && date && \
+    python3 fetch_spp_data_batch.py && date >> fetch.log 2>&1'
+
+02 * * * * \
+    bash -ls -c 'cd ~/rto-data-project && sleep 39 && date && \
+    python3 cleanup_old_data_batch.py && date >> cleanup.log 2>&1'
+
