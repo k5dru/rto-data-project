@@ -141,8 +141,4 @@ con.execute (text("vacuum"))
 print(space())
 
 
-# In[ ]:
-
-
-
 
