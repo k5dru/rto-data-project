@@ -1,9 +1,7 @@
-# fetch SPP data every few minutes all the time, until I can get a working backfill routine
-3,7,13,17,23,27,33,37,43,47,53,57 * * * * \
-    bash -ls -c 'cd ~/rto-data-project && sleep 17 && date && \
-    python3 fetch_spp_data_batch.py && date >> fetch.log 2>&1'
+# sadly there appears to be no way to split long lines in crotab: https://stackoverflow.com/questions/18661492/crontab-command-separate-line
 
-02 * * * * \
-    bash -ls -c 'cd ~/rto-data-project && sleep 39 && date && \
-    python3 cleanup_old_data_batch.py && date >> cleanup.log 2>&1'
+# fetch SPP data every 5 minutes. 
+3,8,13,18,23,28,33,38,43,48,53,58 * * * * bash -ls -c 'cd rto-data-project/batch; (set -x; sleep 17; date; python3 fetch_spp_data_batch.py; date) >> fetch.log 2>&1'
 
+# once an hour, remove all data over 2 weeks old with the cleanup script:
+5 * * * * bash -ls -c 'cd rto-data-project/batch; (set -x; sleep 28; date; python3 cleanup_old_data_batch.py; date) >> cleanup.log 2>&1'
