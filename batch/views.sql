@@ -8,6 +8,7 @@
 set search_path to sppdata;
 
 -- drop views if exist  
+drop view if exists generation_mix_piechart_vw_orig;
 drop view if exists generation_mix_piechart_vw;
 drop view if exists emissions_trend_vw_orig;
 drop view if exists emissions_trend_vw;
@@ -24,16 +25,17 @@ with mostrecent as (
   select * from sppdata.generation_mix where gmt_mkt_interval = 
     (select max(gmt_mkt_interval) from sppdata.generation_mix)
 )
-select 'Hydro' as label, hydro_market+hydro_self as value from  mostrecent
-union all select 'Solar' as label, solar_market+solar_self as value from mostrecent
-union all select 'Wind' as label, wind_market+wind_self as value from mostrecent
-union all select 'Nuclear' as label, nuclear_market+nuclear_self as value from mostrecent
-union all select 'Diesel' as label, diesel_fuel_oil_market+diesel_fuel_oil_self as value from mostrecent
-union all select 'Coal' as label, coal_market+coal_self as value from mostrecent
-union all select 'Natural Gas' as label, natural_gas_market+natural_gas_self as value from mostrecent
-union all select 'Other' as label, waste_disposal_services_market+waste_disposal_services_self
-+waste_heat_market+waste_heat_self+other_market+other_self as value from mostrecent
+select gmt_mkt_interval, 'Hydro' as label, hydro_market+hydro_self as value from  mostrecent
+union all select gmt_mkt_interval, 'Solar' as label, solar_market+solar_self as value from mostrecent
+union all select gmt_mkt_interval, 'Wind' as label, wind_market+wind_self as value from mostrecent
+union all select gmt_mkt_interval, 'Nuclear' as label, nuclear_market+nuclear_self as value from mostrecent
+union all select gmt_mkt_interval, 'Diesel' as label, diesel_fuel_oil_market+diesel_fuel_oil_self as value from mostrecent
+union all select gmt_mkt_interval, 'Coal' as label, coal_market+coal_self as value from mostrecent
+union all select gmt_mkt_interval, 'Natural Gas' as label, natural_gas_market+natural_gas_self as value from mostrecent
+union all select gmt_mkt_interval, 'Other' as label, waste_disposal_services_market+waste_disposal_services_self +
+  waste_heat_market+waste_heat_self+other_market+other_self as value from mostrecent
 ;
+
 
 --  Feature:  emissions trend 
 create view emissions_trend_vw_orig as 
