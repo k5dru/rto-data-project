@@ -127,3 +127,11 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+
+# database connection info
+dbconn.json
+dbconn.py
+
+# cached objects stored as .pickle
+*.pickle
