@@ -12,6 +12,7 @@ drop view if exists generation_mix_piechart_vw;
 drop view if exists emissions_trend_vw_orig;
 drop view if exists emissions_trend_vw;
 drop view if exists rtbm_lmp_map_vw;
+drop view if exists da_lmp_map_vw;
 drop view if exists demand_vs_forecast_vw;
 drop view if exists tie_flows_long_vw; 
 drop view if exists area_control_error_vw;
@@ -119,6 +120,33 @@ mostrecent.lmp as "LMP",
 mostrecent.mcc as "MCC",
 mostrecent.mlc as "MLC",
 sl.settlement_location as "Settlement Location", 
+sl.est_latitude,
+sl.est_longitude,
+sl.inferred_location_type as "Inferred Location Type",
+-- case when sl.latitude is not null then 0.2 else 0.1 end as "size",
+0.2 as size
+from sppdata.settlement_location sl
+join mostrecent on (mostrecent.settlement_location = sl.settlement_location)
+;
+
+-- Feature:  DAMKT LMP map
+create view da_lmp_map_vw as
+with mostrecent as (
+  select * from sppdata.da_lmp_by_location
+  where gmtinterval_end =
+  -- this is tricky. We want to display the DA hour ending that the RT interval end falls in. 
+  -- To do this we need to convert from 5 minute interval ending to hour ending. 
+  -- so 06:00 is 06:00, but 06:05 to 06:550 becomes 07:00. 
+  date_trunc('hour', (select max(gmtinterval_end) from sppdata.rtbm_lmp_by_location) + interval '55 minutes')
+)
+select
+to_char(mostrecent.gmtinterval_end at time zone 'America/Chicago', 'DD-Mon HH24:MI')
+  as "DA Hour Ending",
+mostrecent.pnode as "Price Node",
+mostrecent.lmp as "LMP",
+mostrecent.mcc as "MCC",
+mostrecent.mlc as "MLC",
+sl.settlement_location as "Settlement Location",
 sl.est_latitude,
 sl.est_longitude,
 sl.inferred_location_type as "Inferred Location Type",
