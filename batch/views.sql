@@ -20,17 +20,18 @@ drop view if exists rtbm_binding_constraints_vw;
 --  Feature:  current generation mix 
 create view generation_mix_piechart_vw as 
 with mostrecent as ( 
-  select * from sppdata.generation_mix where gmt_mkt_interval = 
+  select generation_mix.*, gmt_mkt_interval at time zone 'America/Chicago' as local_mkt_interval
+   from sppdata.generation_mix where gmt_mkt_interval = 
     (select max(gmt_mkt_interval) from sppdata.generation_mix)
 )
-select gmt_mkt_interval, 'Hydro' as label, hydro_market+hydro_self as value from  mostrecent
-union all select gmt_mkt_interval, 'Solar' as label, solar_market+solar_self as value from mostrecent
-union all select gmt_mkt_interval, 'Wind' as label, wind_market+wind_self as value from mostrecent
-union all select gmt_mkt_interval, 'Nuclear' as label, nuclear_market+nuclear_self as value from mostrecent
-union all select gmt_mkt_interval, 'Diesel' as label, diesel_fuel_oil_market+diesel_fuel_oil_self as value from mostrecent
-union all select gmt_mkt_interval, 'Coal' as label, coal_market+coal_self as value from mostrecent
-union all select gmt_mkt_interval, 'Natural Gas' as label, natural_gas_market+natural_gas_self as value from mostrecent
-union all select gmt_mkt_interval, 'Other' as label, waste_disposal_services_market+waste_disposal_services_self +
+select local_mkt_interval, 'Hydro' as label, hydro_market+hydro_self as value from  mostrecent
+union all select local_mkt_interval, 'Solar' as label, solar_market+solar_self as value from mostrecent
+union all select local_mkt_interval, 'Wind' as label, wind_market+wind_self as value from mostrecent
+union all select local_mkt_interval, 'Nuclear' as label, nuclear_market+nuclear_self as value from mostrecent
+union all select local_mkt_interval, 'Diesel' as label, diesel_fuel_oil_market+diesel_fuel_oil_self as value from mostrecent
+union all select local_mkt_interval, 'Coal' as label, coal_market+coal_self as value from mostrecent
+union all select local_mkt_interval, 'Natural Gas' as label, natural_gas_market+natural_gas_self as value from mostrecent
+union all select local_mkt_interval, 'Other' as label, waste_disposal_services_market+waste_disposal_services_self +
   waste_heat_market+waste_heat_self+other_market+other_self as value from mostrecent
 ;
 
@@ -68,7 +69,7 @@ with mostrecent as (
 )
 select 
 calcs.gmt_mkt_interval at time zone 'America/Chicago' -- as "Local Time",
-as local_time,
+as local_mkt_interval,
 round((calcs.coal_co2_lbs + calcs.natural_gas_co2_lbs + calcs.fuel_oil_co2_lbs) / calcs.total_generation) / 1000.0 
 --  as "Lbs CO2 per KWh",
 as lbs_co2_per_kwh,
@@ -79,7 +80,7 @@ cross join calcsavg -- only one value the same for all timepoints, creating a ho
 -- now limit to just the previous 24 hours, after calculating the average for the week 
 -- where calcs.gmt_mkt_interval > current_timestamp - interval '24 hours' 
 --order by "Local Time"
-order by local_time
+order by local_mkt_interval
 ;
 
 -- Feature:  RTBM LMP map 
@@ -193,8 +194,8 @@ order by area, gmttime
 
 -- Feature: Area control error display
 create or replace view area_control_error_vw as
-select gmttime at time zone 'America/Chicago' as "Local Time", 
-value as "MW"
+select gmttime at time zone 'America/Chicago' as "local_time", -- "Local Time", 
+value as mw -- "MW"
 from sppdata.area_control_error
 where gmttime > current_timestamp - interval '2 hours'
 order by gmttime
@@ -215,6 +216,8 @@ from sppdata.rtbm_binding_constraints
 where gmtinterval_end = (select max(gmtinterval_end) from rtbm_binding_constraints)
 -- avoid returning stale data if ETL has failed 
 and gmtinterval_end > current_timestamp - interval '1 hours'
+order by shadow_price , constraint_type desc, 
+monitored_facility, contingent_facility, constraint_name
 ;
 
 -- set timing on in psql: 
