@@ -8,9 +8,7 @@
 set search_path to sppdata;
 
 -- drop views if exist  
-drop view if exists generation_mix_piechart_vw_orig;
 drop view if exists generation_mix_piechart_vw;
-drop view if exists emissions_trend_vw_orig;
 drop view if exists emissions_trend_vw;
 drop view if exists rtbm_lmp_map_vw;
 drop view if exists da_lmp_map_vw;
@@ -36,35 +34,6 @@ union all select gmt_mkt_interval, 'Other' as label, waste_disposal_services_mar
   waste_heat_market+waste_heat_self+other_market+other_self as value from mostrecent
 ;
 
-
---  Feature:  emissions trend 
-create view emissions_trend_vw_orig as 
-with mostrecent as ( 
-  select * from sppdata.generation_mix where gmt_mkt_interval > current_timestamp - interval '24 hours' 
-)
-, calcs as (
-    select 
-    gmt_mkt_interval,
-      (hydro_market+hydro_self) 
-    + (solar_market+solar_self)
-    + (wind_market+wind_self)
-    + (nuclear_market+nuclear_self) 
-    + (diesel_fuel_oil_market+diesel_fuel_oil_self)
-    + (coal_market+coal_self) 
-    + (natural_gas_market+natural_gas_self)
-    + (waste_disposal_services_market+waste_disposal_services_self + 
-       waste_heat_market+waste_heat_self+other_market+other_self) 
-    as total_generation, 
-    (coal_market+coal_self) * 1000 * 2.26 as coal_co2_lbs,
-    (natural_gas_market+natural_gas_self) * 1000 *  0.97 as natural_gas_co2_lbs,
-    (diesel_fuel_oil_market+diesel_fuel_oil_self) * 1000 * 2.44 as fuel_oil_co2_lbs 
-    from mostrecent
-)
-select gmt_mkt_interval at time zone 'America/Chicago' as "Local Time",
-round((coal_co2_lbs + natural_gas_co2_lbs + fuel_oil_co2_lbs) / total_generation) / 1000.0 as "Lbs CO2 per KWh"
-from calcs
-order by "Local Time"
-;
 
 --  Feature:  emissions trend 
 create view emissions_trend_vw as 
@@ -93,18 +62,24 @@ with mostrecent as (
 , calcsavg as (
     select 
       avg((calcs.coal_co2_lbs + calcs.natural_gas_co2_lbs + calcs.fuel_oil_co2_lbs) / calcs.total_generation) / 1000.0 
-      as "Weekly Average"
+--      as "Weekly Average"
+    as weekly_average
     from calcs
 )
-select calcs.gmt_mkt_interval at time zone 'America/Chicago' as "Local Time",
+select 
+calcs.gmt_mkt_interval at time zone 'America/Chicago' -- as "Local Time",
+as local_time,
 round((calcs.coal_co2_lbs + calcs.natural_gas_co2_lbs + calcs.fuel_oil_co2_lbs) / calcs.total_generation) / 1000.0 
-  as "Lbs CO2 per KWh",
-calcsavg."Weekly Average"
+--  as "Lbs CO2 per KWh",
+as lbs_co2_per_kwh,
+--calcsavg."Weekly Average"
+calcsavg.weekly_average
 from calcs
 cross join calcsavg -- only one value the same for all timepoints, creating a horizontal line on the graph 
 -- now limit to just the previous 24 hours, after calculating the average for the week 
 -- where calcs.gmt_mkt_interval > current_timestamp - interval '24 hours' 
-order by "Local Time"
+--order by "Local Time"
+order by local_time
 ;
 
 -- Feature:  RTBM LMP map 
@@ -116,15 +91,17 @@ with mostrecent as (
 )
 select 
 to_char(mostrecent.gmtinterval_end at time zone 'America/Chicago', 'DD-Mon HH24:MI')
-  as "RTBM Interval Ending",
-mostrecent.pnode as "Price Node", 
-mostrecent.lmp as "LMP",
-mostrecent.mcc as "MCC",
-mostrecent.mlc as "MLC",
-sl.settlement_location as "Settlement Location", 
+--  as "RTBM Interval Ending",
+as rtbm_interval_ending,
+mostrecent.pnode, -- as "Price Node", 
+
+mostrecent.lmp, -- as "LMP",
+mostrecent.mcc, -- as "MCC",
+mostrecent.mlc, -- as "MLC",
+sl.settlement_location, -- as "Settlement Location", 
 sl.est_latitude,
 sl.est_longitude,
-sl.inferred_location_type as "Inferred Location Type",
+sl.inferred_location_type, -- as "Inferred Location Type",
 -- case when sl.latitude is not null then 0.2 else 0.1 end as "size",
 0.2 as size
 from sppdata.settlement_location sl
@@ -142,16 +119,16 @@ with mostrecent as (
   date_trunc('hour', (select max(gmtinterval_end) from sppdata.rtbm_lmp_by_location) + interval '55 minutes')
 )
 select
-to_char(mostrecent.gmtinterval_end at time zone 'America/Chicago', 'DD-Mon HH24:MI')
-  as "DA Hour Ending",
-mostrecent.pnode as "Price Node",
-mostrecent.lmp as "LMP",
-mostrecent.mcc as "MCC",
-mostrecent.mlc as "MLC",
-sl.settlement_location as "Settlement Location",
+to_char(mostrecent.gmtinterval_end at time zone 'America/Chicago', 'DD-Mon HH24:MI') -- as "DA Hour Ending",
+  as da_hour_ending,
+mostrecent.pnode, -- as "Price Node",
+mostrecent.lmp, -- as "LMP",
+mostrecent.mcc, -- as "MCC",
+mostrecent.mlc, -- as "MLC",
+sl.settlement_location, -- as "Settlement Location",
 sl.est_latitude,
 sl.est_longitude,
-sl.inferred_location_type as "Inferred Location Type",
+sl.inferred_location_type, -- as "Inferred Location Type",
 -- case when sl.latitude is not null then 0.2 else 0.1 end as "size",
 0.2 as size
 from sppdata.settlement_location sl
@@ -179,35 +156,35 @@ with report_times as (
                           and gmtinterval_end <= (select report_end from report_times)
 )
 
-select stlf.gmtinterval_end at time zone 'America/Chicago' as "Interval Ending", 
-'Short-Term Load Forecast' as "Measure",
-stlf.stlf as "MW" 
+select stlf.gmtinterval_end at time zone 'America/Chicago' as interval_ending, -- as "Interval Ending", 
+'Short-Term Load Forecast' as measure, -- as "Measure",
+stlf.stlf as mw -- as "MW" 
 from stlf
 
 union all 
 
 select stlf.gmtinterval_end at time zone 'America/Chicago' as "Interval Ending", 
-'Demand' as "Measure",
-stlf.actual as "MW" 
+'Demand' as measure, -- as "Measure",
+stlf.actual as mw -- as "MW" 
 from stlf
 
 union all 
 
 select mtlf.gmtinterval_end at time zone 'America/Chicago' as "Interval Ending", 
-'Mid-Term Load Forecast' as "Measure", 
-mtlf.mtlf as "MW" 
+'Mid-Term Load Forecast' as measure, -- as "Measure", 
+mtlf.mtlf as mw -- as "MW" 
 from mtlf
 
-order by "Interval Ending" 
+order by interval_ending -- "Interval Ending" 
 ; 
 
 -- Feature: Tie flows display
 -- new change-resilient LONG format data - the data load process was changed to pivot the data into long format before loading into the database
 -- this is a much more efficient way to query the data, and also allows for more flexibility in the future
 create or replace view tie_flows_long_vw as
-select gmttime at time zone 'America/Chicago' as "Local Time", 
-area as "Area", 
-mw as "MW"
+select gmttime at time zone 'America/Chicago' as local_time, --"Local Time", 
+area, -- as "Area", 
+mw --  as "MW"
 from sppdata.tie_flows_long
 where gmttime > current_timestamp - interval '2 hours'
 and gmttime < current_timestamp + interval '30 minutes'
@@ -225,15 +202,15 @@ order by gmttime
 
 -- Feature: RTBM binding constraints display
 create or replace view rtbm_binding_constraints_vw as
-select gmtinterval_end at time zone 'America/Chicago' as "Interval Ending",
-constraint_name as "Constraint",
-constraint_type as "Type",
+select gmtinterval_end at time zone 'America/Chicago' as interval_ending, -- "Interval Ending",
+constraint_name, --  as "Constraint",
+constraint_type, -- as "Type",
 -- nercid as "NERC ID",
 -- tlr_level as "TLR Level",
 -- state as "State",
-shadow_price as "Shadow Price",
-monitored_facility as "Monitored Facility",
-contingent_facility as "Contingent Facility"
+shadow_price, -- as "Shadow Price",
+monitored_facility, --  as "Monitored Facility",
+contingent_facility --  as "Contingent Facility"
 from sppdata.rtbm_binding_constraints
 where gmtinterval_end = (select max(gmtinterval_end) from rtbm_binding_constraints)
 -- avoid returning stale data if ETL has failed 
