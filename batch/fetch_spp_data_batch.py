@@ -1,28 +1,38 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# # goal:  fetch the minimal set of data from SPP sources for the current interval or a past interval
-# # persist in a database (try postgresql)
+# # Goal: fetch the minimal set of data from SPP public data sources 
+#  for the current interval. Persist in a database (duckdb or postgresql)
 # 
-# 
-#  ## TODO
-#  - DONE: figure out if we are ON or OFF the renaming of columns bandwagon.  We are ON the rename bandwagon for now, but a change to standardize_columns would change that.
-#      Background: https://dba.stackexchange.com/questions/250943/should-i-not-use-camelcase-in-my-column-names
+# Column names are minimally renamed from Title Case to snake_case to facilitate manipulation. snake_case was chosen over camelCase after asking around: 
+#  https://dba.stackexchange.com/questions/250943/should-i-not-use-camelcase-in-my-column-names
 #  
-#  - REFACTOR to get the most recent available RTBM file, and use that as a time basis. 
-#      * Combine as much as possible in a common function 
-#      * Backfill: Provide the ability to query recent intervals that are not in the database, create a valid path from interval timestamps (stlf appears tricky), and slowly backfill a day of data
+# Improvements: 
+# * REFACTOR to get the most recent available RTBM file, and use that as a time basis. Currently I am using the most recent time available in generation_mix, and munging that to get path names for the other data elements.
+#      * Combine as much as possible in a common class or function 
+#      * Backfill: Need to provide the ability to query recent intervals that are not in the database, create a valid path from interval timestamps (stlf appears tricky), and slowly backfill a day of data
 #      * Optional Forward fill: for Multi-Day Resource Assessment, provide a way to forward-fill for a few days
-#  - CLEAN UP so that when exported to a python file it just runs without edits, and produces sane reports from each module
+#      * Produce sane and consistent reports from each module
+# * DONE: cleaned up so that when exported to a python file it just runs without edits
 
 # ### Prerequisite:  
 # * miniconda installation from 2023 or later 
 # * in anaconda powershell prompt, "conda activate 2023"
+# 
+# ### the following Python packages were installed
+# * jupyter=1.0.0
+# * openpyxl=3.0.10
+# * pandas=1.5.3
+# * plotly=5.9.0
+# * psycopg2=2.9.5
+# * scikit-learn=1.2.0
+# * sqlalchemy=2.0.4
+# 
 
-# In[1]:
+# In[2]:
 
 
-#!pip install duckdb
+# use Pandas dataframes as structure for ETL
 import pandas as pd 
 
 from datetime import datetime
@@ -30,31 +40,27 @@ import pytz
 
 
 # Source data model is in https://docs.google.com/spreadsheets/d/1Qh28Lb4dcbw9YMqcXLSj7N8l6Tlr46xNQkV-t1A2txc/edit#gid=0
+# * copied to to https://github.com/k5dru/rto-data-project/docs/source_data_model.xlsx
+# 
 # 
 
-# ## Define local database. Duckdb is cool and all, but how about a real database? 
-# 
-#     to initiate session:
-#     SET default_tablespace = u02_pgdata;
-#     create schema if not exists sppdata authorization current_user;
-#     set search_path to sppdata;
-#     
-#     to drop everything: 
-#      select 'drop table ' || table_name || ' cascade;' from information_schema.tables where table_schema = 'sppdata';
-# 
-# 
+# Read database credentials from a json file. To create the json file, edit "sample_dbconn.py" and run it; all the other programs in this repo will ready dbconn.json for credentials
 
 # In[2]:
+
+
 import json
 # read the database information from the json file
 with open('../dbconn.json', 'r') as f:
     di = json.load(f)
 # create a connection string for postgresql
-pg_uri = f"//{di['username']}:{di['password']}@{di['host']}:{di['port']}/{di['database']}"
+pg_uri = f"//{di['username']}:{di['password']}@{di['host']}:{di['port']}/{di['database']}"    
 
 
-#!pip install sqlalchemy
-#!pip install psycopg2
+# In[9]:
+
+
+# sqlalchemy and psycopg2 must be installed
 
 # using https://pythontic.com/pandas/serialization/postgresql as example
 # though https://naysan.ca/2020/05/31/postgresql-to-pandas/ avoids the sqlalchemy layer
@@ -67,18 +73,22 @@ from sqlalchemy import text
 # Create an engine instance
 alchemyEngine   = create_engine(f'postgresql+psycopg2:{pg_uri}', pool_recycle=3600);
 
- # Connect to PostgreSQL server
+
+# In[10]:
+
+
+# Connect to PostgreSQL server
 con    = alchemyEngine.connect();
-# con.execute (text("SET default_tablespace = u02_pgdata"))
 con.execute (text("create schema if not exists sppdata authorization current_user"))
 con.execute (text("set search_path to sppdata"))
 
-con.autocommit=False;
-# Read data from PostgreSQL database table and load into a DataFrame instance
-#dataFrame       = pd.read_sql(text("select * from information_schema.tables"), con);
-#dataFrame
- 
 
+# In[11]:
+
+
+con.autocommit=False;
+
+# define a very simple function to run a query and reutrn a dataframe
 def pgsqldf(query): 
     return pd.read_sql(text(query), con)
 
@@ -90,32 +100,13 @@ def pgsqldf(query):
 # ### example table to dataframe: 
 #     df=pd.read_sql(text("select * from information_schema.tables"), con)
 
-# In[4]:
+# In[ ]:
 
 
-con.commit();  #  OH YEAH!  I'm on a real database!  changes need to be committed.
+con.commit();  #  if using transactions, changes need to be committed.
 
 
-# In[5]:
-
-
-# if wanting to nuke the world and start over: 
-if False: 
-    for table_name in ['rtbm_lmp_by_location', 
-        'da_lmp_by_location', 
-        'area_control_error', 
-        'stlf_vs_actual', 
-        'mtlf_vs_actual', 
-        'tie_flows', 
-        'rtbm_binding_constraints',
-        'generation_mix',
-        'settlement_location',
-    ]: 
-        con.execute(text(f"drop table {table_name} cascade"))
- 
-
-
-# In[6]:
+# In[ ]:
 
 
 # define a function to transform source data column names to a more appropriate form for working with data:
@@ -127,19 +118,47 @@ def standardize_columns(df):
                     .str.lower()
                  )    
     
-    # add an inserted time to all dataframes
+    # add an inserted time to all dataframes to track when data showed up on database
     if not 'inserted_time' in df.columns.values: 
         df['inserted_time'] = datetime.now(pytz.timezone("America/Chicago"))
 
-     
     print("standardized columns: ",  df.columns.values)
 
 
 # # Settlement Locations
 # and their estimated locations, from a local project file
 
-# In[7]:
+# In[ ]:
 
+
+# this only needs to bne done when the settlement location file changes; currently this is a manual process. 
+# Improvements:  
+#  * move this to the workbook that creates this file
+#  * truncate and reload instead of drop and replace, since views now depend on this file
+if False: 
+   
+    df=pd.read_csv("settlement_node_location.csv")
+
+    """":# for database operations, rename all table and field names to lowercase snake_case
+    df.rename(columns={'Settlement Location':'settlement_location',
+               'InferredLocationType':'inferred_location_type',
+               'est_Latitude':'est_latitude',
+               'est_Longitude':'est_longitude'}, inplace=True)
+    """
+
+    standardize_columns(df)
+    print(df.columns)
+
+    df.to_sql("settlement_location", con=con, if_exists='replace', index=False); 
+
+    con.execute(text("""alter table settlement_location 
+    add constraint settlement_location_pk 
+    primary key (settlement_location)"""
+                    )
+               )
+
+    con.commit() 
+  
 
 
 #     # per https://duckdb.org/docs/guides/python/import_pandas.html, duckdb just knows about dataframes; no import necessary
@@ -152,33 +171,17 @@ def standardize_columns(df):
 #     # check that it got there
 #     duckdb.sql("SELECT table_catalog, table_name, column_name, is_nullable, data_type from information_schema.columns")
 
-# In[8]:
-
-
-if False:    # this only needs to be done when settlement locations table changes, and now views depend on it.
-
-    df.to_sql("settlement_location", con=con, if_exists='replace', index=False); 
-
-    con.execute(text("""alter table settlement_location 
-    add constraint settlement_location_pk 
-    primary key (settlement_location)"""
-                    )
-               )
-
-    con.commit()  #  OH YEAH!  I'm on a real database!  changes need to be committed.
-  
-
-
-# In[9]:
+# In[ ]:
 
 
 # select sample data for fun
 pd.read_sql(text("SELECT * from settlement_location order by random() limit 10"), con)
 
 
-# ### todo: Bug: if first append works but primary key fails to create, nothing else will work ever.
+# ### todo: 
+#  fix bug: if first append works but primary key fails to create, nothing else will work ever.
 
-# In[10]:
+# In[ ]:
 
 
 def pg_insertnew(table_name, primary_keys, df, con):
@@ -250,7 +253,7 @@ def pg_insertnew(table_name, primary_keys, df, con):
 # - IncompleteRead: IncompleteRead(4044 bytes read, 2 more expected)
 # 
 
-# In[11]:
+# In[ ]:
 
 
 # try something harder: 2 hour generation mix. 
@@ -269,7 +272,7 @@ def update_generation_mix(con):
 # update_generation_mix(con)
 
 
-# In[12]:
+# In[ ]:
 
 
 # test query, just because I can:
@@ -309,7 +312,7 @@ pgsqldf("""
 # 
 # 
 
-# In[13]:
+# In[ ]:
 
 
 def get_current_interval(): 
@@ -348,11 +351,10 @@ def get_current_interval():
     """)
     return retdf
 
-con.rollback()
 get_current_interval()
 
 
-# In[14]:
+# In[ ]:
 
 
 def update_rtbm_lmp(con):
@@ -432,7 +434,7 @@ def update_rtbm_lmp(con):
 
 # # TODO: fix the test in RTBM and DALMP that used 'interval' to determine if it needed to reload. 
 
-# In[15]:
+# In[ ]:
 
 
 def update_da_lmp(con):
@@ -508,7 +510,7 @@ def update_da_lmp(con):
 # # Area Control Error
 #     ftp://pubftp.spp.org/Operational_Data/ACE/ACE.csv
 
-# In[16]:
+# In[ ]:
 
 
 def update_ace(con):
@@ -558,7 +560,7 @@ def update_ace(con):
 #     # so the value of da_hh24 in the path had already advanced, 5 minutes early
 #     
 
-# In[17]:
+# In[ ]:
 
 
 def update_stlf(con):
@@ -630,7 +632,7 @@ def update_stlf(con):
 # - this is kind of big and doesn't update but once an hour; maybe cache the file?
 #     
 
-# In[18]:
+# In[ ]:
 
 
 def update_mtlf(con):
@@ -719,45 +721,12 @@ def update_mtlf(con):
 # ## TODO: 
 # - Implement periodic vacuum from all these deletes
 # 
+# ## Done: 
 # - Completely refactor to convert wide-form data to long-form data.  That would avoid completely breaking this interface if an area is added, removed or renamed.
-#     * AND it would completely fix the delete problem by not inserting NULL values in the first place. 
+#     * AND it avoids the delete problem by not inserting all the NULL values in the first place. 
 
-# In[19]:
+# In[ ]:
 
-
-## DEPRECATED fragile wide-form; if the layout changes, we have to redo everything.  See now update_tie_flows_long. 
-def update_tie_flows(con):
-    table_name="tie_flows"
-    source_url="ftp://pubftp.spp.org/Operational_Data/TIE_FLOW/TieFlows.csv"
-    primary_keys=['gmttime']
-    
-    df=pd.read_csv(source_url, 
-                   parse_dates=['GMTTime'], 
-                   infer_datetime_format = True
-                  )
-    
-    #df.rename(columns={'GMTTime':'gmt_time'}, inplace=True)
-    standardize_columns(df)
-    
-    try:
-        con.execute(text("""delete from tie_flows where spp_nsi is null"""))
-        con.commit() 
-    except: 
-        con.rollback()
-        
-    pg_insertnew(table_name=table_name, primary_keys=primary_keys, df=df, con=con)
-    
-    con.commit()
-    
-    return pgsqldf(f"""select * from {table_name} where spp_nsi is not null order by gmttime desc limit 5""")
-
-
-
-
-# In[20]:
-
-
-#con.rollback()
 
 def update_tie_flows_long(con):
     table_name="tie_flows_long"
@@ -806,7 +775,7 @@ def update_tie_flows_long(con):
 #  ## TODO
 #  DONE: figure out if we are ON or OFF the renaming of columns bandwagon - we are currently ON
 
-# In[21]:
+# In[ ]:
 
 
 def update_rt_binding(con):
@@ -854,7 +823,7 @@ def update_rt_binding(con):
 # ### Below here is just calling it again to make sure that works.
 # 
 
-# In[22]:
+# In[ ]:
 
 
 if True: 
@@ -864,13 +833,12 @@ if True:
     update_da_lmp(con)
     update_stlf(con)
     update_mtlf(con)
-    #remove: update_tie_flows(con)
     update_tie_flows_long(con)
     update_rt_binding(con)
     con.commit()
 
 
-# In[23]:
+# In[ ]:
 
 
 from time import sleep
@@ -891,7 +859,7 @@ while False:
         
 
 
-# In[24]:
+# In[ ]:
 
 
 con.commit()
