@@ -1,4 +1,6 @@
 # db_env.py - print export commands for setting up postgresql database environment for psql
+# example use at the command line: 
+# `python3 db_env.py`
 
 # NOTE: be cautious about using PGPASSWORD if on a multi-user system; others may be able to see 
 # your program's environment variables
